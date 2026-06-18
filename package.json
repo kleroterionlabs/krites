@@ -1,6 +1,6 @@
 {
   "name": "@kleroterion/krites",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Autonomous reviewer/merger: reviews the PRs Praktor opens against Boule's acceptance criteria, posts a GitHub review, and enables gated auto-merge — closing the Boule → Praktor → Krites loop.",
   "keywords": [
     "claude",
