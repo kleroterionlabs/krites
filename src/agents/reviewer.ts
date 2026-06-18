@@ -2,7 +2,7 @@
 // Glob/Grep the checked-out tree (no Write/Edit/Bash), and it delivers its verdict ONLY through the
 // structured `submit_verdict` tool — never free text. All PR content is framed as UNTRUSTED DATA. The
 // verdict the model returns is advisory; the deterministic canMerge gate is the real authority.
-import { type Options, createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { type CanUseTool, type Options, createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { type Logger, type RunOutcome, runQuery } from "@kleroterion/koine";
 import { z } from "zod";
 import type { Config } from "../config/schema.js";
@@ -13,6 +13,16 @@ import { makeAuditHook } from "./audit.js";
 // Read-only toolset. The critic inspects code; it never mutates anything.
 const READ_TOOLS = ["Read", "Glob", "Grep", "TodoWrite"];
 const SUBMIT_TOOL = "mcp__krites__submit_verdict";
+const ALLOWED_TOOLS = new Set([...READ_TOOLS, SUBMIT_TOOL]);
+
+// Deny-by-default gate. allowedTools alone does NOT stop the agent reaching for Bash/WebFetch/etc.
+// (one such call once hung a run past the App token's 1h TTL → "Bad credentials"). This makes the
+// reviewer genuinely read-only — no shell, no network — which also denies a diff the chance to lure
+// it into fetching an attacker URL. The verdict still arrives only via the submit_verdict MCP tool.
+const readOnlyGate: CanUseTool = async (toolName, input) =>
+  ALLOWED_TOOLS.has(toolName)
+    ? { behavior: "allow", updatedInput: input }
+    : { behavior: "deny", message: `Krites reviewer is read-only; '${toolName}' is not permitted.` };
 
 function systemPrompt(repo: string): string {
   return [
@@ -117,8 +127,9 @@ export async function reviewPR(args: ReviewArgs): Promise<ReviewResult> {
     maxBudgetUsd: cfg.budgets.usdPerRun,
     cwd: process.cwd(),
     systemPrompt: { type: "preset", preset: "claude_code", append: systemPrompt(cfg.repo) },
-    // Read-only review tools + the single structured verdict channel. No Write/Edit/Bash.
+    // Read-only review tools + the single structured verdict channel. No Write/Edit/Bash/WebFetch.
     allowedTools: [...READ_TOOLS, SUBMIT_TOOL],
+    canUseTool: readOnlyGate, // hard deny-by-default — allowedTools alone does not restrict
     mcpServers: { krites: server },
     permissionMode: "default",
     hooks: { PreToolUse: [{ matcher: ".*", hooks: [makeAuditHook(log)] }] },
