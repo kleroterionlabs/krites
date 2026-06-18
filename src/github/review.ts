@@ -1,7 +1,8 @@
 // src/github/review.ts — the two GitHub writes a review produces: post a PR review, and (only when the
-// deterministic gate allows) ENABLE auto-merge. Krites never calls the merge API directly: it enables
-// GitHub's native auto-merge, so GitHub performs the merge only once branch-protection's required checks
-// and reviews pass. Every agent-authored string is run through koine cleanOutbound first.
+// deterministic gate allows) MERGE. Krites merges via REST PINNED to the reviewed SHA, and is granted no
+// Administration scope — so GitHub branch protection still enforces required checks/reviews server-side
+// and rejects the merge if they are not met. Krites is the second layer; branch protection is the gate.
+// Every agent-authored string is run through koine cleanOutbound first.
 import { type GitHubClient, cleanOutbound } from "@kleroterion/koine";
 
 export type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
@@ -27,19 +28,37 @@ export async function postReview(
   return { secrets: safe.secrets, mentions: safe.mentions };
 }
 
-const MERGE_METHOD_ENUM = { squash: "SQUASH", merge: "MERGE", rebase: "REBASE" } as const;
-export type MergeMethod = keyof typeof MERGE_METHOD_ENUM;
+export type MergeMethod = "squash" | "merge" | "rebase";
 
-/** Enable GitHub native auto-merge. GitHub still gates the actual merge on branch protection. */
-export async function enableAutoMerge(
+export interface MergeOutcome {
+  merged: boolean;
+  reason?: string; // present when GitHub refused (branch protection, conflict, or moved head)
+}
+
+/**
+ * Merge a PR via REST, PINNED to the reviewed SHA so GitHub refuses if the branch moved. A 405/409/422
+ * means GitHub declined — required checks/reviews not satisfied, a conflict, or the head changed — which
+ * is a non-fatal "not now" (returned as merged:false), NOT a crash. Branch protection does the gating;
+ * Krites has no admin bypass, so a 405 here is the human-review/required-check backstop doing its job.
+ */
+export async function mergePullRequest(
   gh: GitHubClient,
-  prNodeId: string,
+  owner: string,
+  name: string,
+  prNumber: number,
+  sha: string,
   mergeMethod: MergeMethod,
-): Promise<void> {
-  await gh.graphql(
-    "write",
-    `mutation($id:ID!,$m:PullRequestMergeMethod!){
-       enablePullRequestAutoMerge(input:{pullRequestId:$id, mergeMethod:$m}){ clientMutationId } }`,
-    { id: prNodeId, m: MERGE_METHOD_ENUM[mergeMethod] },
-  );
+): Promise<MergeOutcome> {
+  try {
+    await gh.withRest("write", (o) =>
+      o.pulls.merge({ owner, repo: name, pull_number: prNumber, sha, merge_method: mergeMethod }),
+    );
+    return { merged: true };
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 405 || status === 409 || status === 422) {
+      return { merged: false, reason: (e as { message?: string }).message ?? `HTTP ${status}` };
+    }
+    throw e;
+  }
 }

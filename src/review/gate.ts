@@ -14,9 +14,10 @@ export interface MergeDecisionInput {
   currentHeadSha: string; // SHA right now (re-fetched before deciding)
   halted: boolean; // live boule:halt re-poll
   dryRun: boolean;
-  mergesUsed: number; // auto-merges already enabled this run
+  mergesUsed: number; // merges already performed this run
   maxMerges: number; // blast-radius cap
   requireCI: boolean; // refuse non-green CI when true
+  branchProtected: boolean; // the default branch enforces required checks/reviews server-side
 }
 
 export interface MergeDecision {
@@ -27,12 +28,15 @@ export interface MergeDecision {
 const deny = (reason: string): MergeDecision => ({ allow: false, reason });
 
 /**
- * Allow enabling auto-merge ONLY when every gate passes. Order is chosen so the most important refusals
- * (kill-switch, dry-run, trust, explicit verdict) report first. Default-deny: any unhandled state denies.
+ * Allow MERGING ONLY when every gate passes. Order is chosen so the most important refusals (kill-switch,
+ * dry-run, missing branch protection, trust, explicit verdict) report first. Default-deny: any unhandled
+ * state denies. Branch protection is still the server-side gate; this is the second, deterministic layer.
  */
 export function canMerge(i: MergeDecisionInput): MergeDecision {
   if (i.dryRun) return deny("dry-run: merge disabled");
   if (i.halted) return deny("boule:halt is active");
+  if (!i.branchProtected)
+    return deny("default branch is not protected — gated merge requires branch protection");
   if (i.mergesUsed >= i.maxMerges) return deny(`merge cap reached (${i.maxMerges})`);
   if (!i.trustedAuthor) return deny("PR author is not the trusted Praktor identity");
   if (i.verdict !== "approve") return deny(`reviewer verdict is "${i.verdict}", not "approve"`);

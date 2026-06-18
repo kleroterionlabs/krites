@@ -15,6 +15,7 @@ const ok = (over: Partial<MergeDecisionInput> = {}): MergeDecisionInput => ({
   mergesUsed: 0,
   maxMerges: 1,
   requireCI: true,
+  branchProtected: true,
   ...over,
 });
 
@@ -27,6 +28,7 @@ describe("canMerge", () => {
   const denials: Array<[string, Partial<MergeDecisionInput>]> = [
     ["dry-run", { dryRun: true }],
     ["halted", { halted: true }],
+    ["branch unprotected (no real gate)", { branchProtected: false }],
     ["cap reached", { mergesUsed: 1, maxMerges: 1 }],
     ["untrusted author", { trustedAuthor: false }],
     ["verdict request_changes", { verdict: "request_changes" }],

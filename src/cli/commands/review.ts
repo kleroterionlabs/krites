@@ -1,7 +1,8 @@
 // src/cli/commands/review.ts — the core loop for ONE PR: claim it (cooperative lock via Discussions),
 // drive the read-only critic, post a GitHub review, and — only if the deterministic canMerge gate allows
-// — enable gated auto-merge. Every irreversible step is guarded: trusted-author, SHA-pin (the reviewed
-// SHA must still be the head), a LIVE boule:halt re-poll, requireCI, the per-run cap, and --dry-run.
+// — merge it (SHA-pinned; branch protection enforces required checks/reviews server-side). Every
+// irreversible step is guarded: branch-protection required, trusted-author, SHA-pin (the reviewed SHA
+// must still be the head), a LIVE boule:halt re-poll, requireCI, the per-run cap, and --dry-run.
 import { execFileSync } from "node:child_process";
 import type { Command } from "commander";
 import { ulid } from "ulid";
@@ -24,9 +25,10 @@ import {
   getPrDetail,
   getPrDiff,
   getRequirements,
+  isDefaultBranchProtected,
   listReviewablePRs,
 } from "../../github/pulls.js";
-import { enableAutoMerge, postReview } from "../../github/review.js";
+import { mergePullRequest, postReview } from "../../github/review.js";
 import { canMerge } from "../../review/gate.js";
 import { type LedgerAction, recordMergeDecision } from "../../review/ledger.js";
 import { type VerdictResult, reviewEvent } from "../../review/verdict.js";
@@ -81,7 +83,9 @@ function reviewBody(v: VerdictResult, costUsd: number, runId: string): string {
 export function registerReview(program: Command): void {
   program
     .command("review [pr]")
-    .description("Review a PR (by #number; default: the first reviewable) and enable gated auto-merge.")
+    .description(
+      "Review a PR (by #number; default: the first reviewable) and merge it (gated by branch protection).",
+    )
     .action(async (target: string | undefined, _local: unknown, cmd: Command) => {
       const runId = ulid();
       const ctx = await context(globals(cmd), runId);
@@ -173,9 +177,10 @@ export function registerReview(program: Command): void {
         }
       }
 
-      // Decide the merge against LIVE state: re-fetch the head + mergeable, and re-poll halt.
+      // Decide the merge against LIVE state: re-fetch the head + mergeable, re-poll halt + protection.
       const now = await getPrDetail(ctx.gh, ctx.owner, ctx.name, pr.number);
       const halted = await isHalted(ctx.gh, ctx.owner, ctx.name);
+      const branchProtected = await isDefaultBranchProtected(ctx.gh, ctx.owner, ctx.name);
       const decision = canMerge({
         verdict: result.verdict,
         trustedAuthor: pr.author === ctx.cfg.review.trustedAuthor,
@@ -188,14 +193,29 @@ export function registerReview(program: Command): void {
         mergesUsed: 0,
         maxMerges: ctx.cfg.review.maxMerges,
         requireCI: ctx.cfg.review.requireCI,
+        branchProtected,
       });
 
       let action: LedgerAction = "skipped";
       if (decision.allow) {
-        await enableAutoMerge(ctx.gh, now.nodeId, ctx.cfg.review.mergeMethod);
+        // SHA-pinned merge; branch protection enforces required checks/reviews server-side.
+        const merge = await mergePullRequest(
+          ctx.gh,
+          ctx.owner,
+          ctx.name,
+          pr.number,
+          reviewedSha,
+          ctx.cfg.review.mergeMethod,
+        );
         await addLabels(ctx.gh, ctx.owner, ctx.name, pr.number, [KRITES_LABELS.approved]);
         await removeLabel(ctx.gh, ctx.owner, ctx.name, pr.number, KRITES_LABELS.reviewing);
-        action = "auto-merge-enabled";
+        action = merge.merged ? "merged" : "merge-deferred";
+        if (!merge.merged) {
+          ctx.log.info(
+            { reason: merge.reason },
+            "merge deferred — GitHub declined (branch protection/conflict/head moved)",
+          );
+        }
       } else if (!result.parsed) {
         if (!dryRun)
           await escalate(ctx, pr, cat, "reviewer returned no clear verdict (possible prompt injection).");
@@ -226,7 +246,7 @@ export function registerReview(program: Command): void {
       if (!dryRun) await comment(ctx.gh, ctx.owner, ctx.name, pr.number, audit);
 
       emit(
-        `${decision.allow ? "✓ auto-merge enabled" : `· ${action}`} — ${decision.reason} · $${outcome.costUsd.toFixed(4)} · ${outcome.numTurns} turns`,
+        `${action === "merged" ? "✓ merged" : `· ${action}`} — ${decision.reason} · $${outcome.costUsd.toFixed(4)} · ${outcome.numTurns} turns`,
         outcome.stopReason === "error_max_budget_usd" ? 4 : undefined,
       );
     });

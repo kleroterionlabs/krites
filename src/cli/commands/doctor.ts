@@ -50,12 +50,6 @@ export function registerDoctor(program: Command): void {
 
           const repo = await gh.withRest("read", (o) => o.repos.get({ owner, repo: name }));
           check(true, `repo reachable (${cfg.repo})`);
-          liveFailed =
-            !check(
-              Boolean(repo.data.allow_auto_merge),
-              "repo allows auto-merge",
-              "enable it in Settings → General → 'Allow auto-merge'",
-            ) || liveFailed;
 
           // Branch protection on the default branch — the real gate. Absent ⇒ doctor fails.
           const branch = repo.data.default_branch;

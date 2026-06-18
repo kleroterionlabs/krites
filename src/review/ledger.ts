@@ -6,7 +6,12 @@ import type { Logger } from "@kleroterion/koine";
 import type { MergeDecision } from "./gate.js";
 import type { Verdict } from "./verdict.js";
 
-export type LedgerAction = "auto-merge-enabled" | "changes-requested" | "escalated" | "skipped";
+export type LedgerAction =
+  | "merged"
+  | "merge-deferred" // gate passed but GitHub declined (branch protection / conflict / moved head)
+  | "changes-requested"
+  | "escalated"
+  | "skipped";
 
 export interface MergeLedgerEntry {
   runId: string;

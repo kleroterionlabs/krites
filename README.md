@@ -18,9 +18,11 @@ Boule (grooms backlog: Designs → Requirements → Tasks)
 
 Krites can influence merges to the default branch, so it is deliberately conservative:
 
-- **Branch protection is the real gate.** Krites never force-merges. It posts an approving review and
-  enables GitHub's native auto-merge; GitHub performs the merge only once branch protection's required
-  checks and reviews pass. `doctor` refuses to run if branch protection is absent.
+- **Branch protection is the real gate.** Krites is granted no Administration scope and never force-merges.
+  It posts an approving review and merges via the REST API **pinned to the reviewed SHA**; with no bypass,
+  GitHub branch protection still enforces required checks/reviews server-side and rejects the merge if they
+  are unmet (a 405/409 is handled as "not yet", never a crash). Both `doctor` and the deterministic
+  `canMerge` gate refuse to proceed if branch protection is absent.
 - **The LLM is advisory only.** The reviewer is read-only and returns a strict, fenced verdict. A
   deterministic, default-deny `canMerge` predicate — not the model's prose — is the sole authority on
   whether auto-merge is enabled. All PR content (diff, title, body, comments) is treated as **untrusted

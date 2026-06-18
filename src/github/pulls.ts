@@ -159,6 +159,23 @@ export async function getRequirements(
   return out;
 }
 
+/** True if the default branch enforces required status checks or reviews (the real merge gate). */
+export async function isDefaultBranchProtected(
+  gh: GitHubClient,
+  owner: string,
+  name: string,
+): Promise<boolean> {
+  const repo = await gh.withRest("read", (o) => o.repos.get({ owner, repo: name }));
+  try {
+    const bp = await gh.withRest("read", (o) =>
+      o.repos.getBranchProtection({ owner, repo: name, branch: repo.data.default_branch }),
+    );
+    return Boolean(bp.data.required_status_checks || bp.data.required_pull_request_reviews);
+  } catch {
+    return false; // 404 = unprotected
+  }
+}
+
 /** Collapse all check-runs + commit statuses for a ref into one conclusion (pessimistic on unknowns). */
 export async function getCiConclusion(
   gh: GitHubClient,
