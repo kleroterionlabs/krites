@@ -8,6 +8,7 @@ import type { Command } from "commander";
 import { resolveAuth } from "../../config/auth.js";
 import { type CliFlags, loadConfig } from "../../config/load.js";
 import { findCategoryId } from "../../github/discussions.js";
+import { isDefaultBranchProtected } from "../../github/pulls.js";
 import { globals } from "./_shared.js";
 
 export function registerDoctor(program: Command): void {
@@ -52,27 +53,15 @@ export function registerDoctor(program: Command): void {
           check(true, `repo reachable (${cfg.repo})`);
 
           // Branch protection on the default branch — the real gate. Absent ⇒ doctor fails.
+          // Ruleset-aware (classic branch protection is blind to rulesets).
           const branch = repo.data.default_branch;
-          try {
-            const bp = await gh.withRest("read", (o) =>
-              o.repos.getBranchProtection({ owner, repo: name, branch }),
-            );
-            const hasChecks = Boolean(bp.data.required_status_checks);
-            const hasReviews = Boolean(bp.data.required_pull_request_reviews);
-            liveFailed =
-              !check(
-                hasChecks && hasReviews,
-                `branch protection on '${branch}' requires checks + reviews`,
-                "require status checks AND pull request reviews so Krites is not the only gate",
-              ) || liveFailed;
-          } catch {
-            liveFailed = true;
-            check(
-              false,
-              `branch protection on '${branch}'`,
-              "the default branch is UNPROTECTED — configure required checks + reviews before running Krites",
-            );
-          }
+          const protectedBranch = await isDefaultBranchProtected(gh, owner, name);
+          liveFailed =
+            !check(
+              protectedBranch,
+              `default branch '${branch}' is protected (required reviews/checks)`,
+              "protect it with a ruleset or branch protection requiring reviews + status checks — Krites must not be the only gate",
+            ) || liveFailed;
 
           for (const category of [cfg.coordination.category, cfg.coordination.escalationCategory]) {
             const id = await findCategoryId(gh, owner, name, category);

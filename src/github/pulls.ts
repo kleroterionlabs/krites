@@ -159,20 +159,33 @@ export async function getRequirements(
   return out;
 }
 
-/** True if the default branch enforces required status checks or reviews (the real merge gate). */
+/**
+ * True if the default branch enforces required reviews and/or status checks (the real merge gate).
+ * Reads the MODERN branch rules endpoint, which reflects rulesets — the classic getBranchProtection
+ * API 404s on a ruleset-protected branch and is blind to it, so do not use it here. Needs only repo
+ * read (no Administration). Falls back to the branch `protected` flag (set by classic OR ruleset).
+ */
 export async function isDefaultBranchProtected(
   gh: GitHubClient,
   owner: string,
   name: string,
 ): Promise<boolean> {
   const repo = await gh.withRest("read", (o) => o.repos.get({ owner, repo: name }));
+  const branch = repo.data.default_branch;
   try {
-    const bp = await gh.withRest("read", (o) =>
-      o.repos.getBranchProtection({ owner, repo: name, branch: repo.data.default_branch }),
+    const rules = await gh.withRest("read", (o) =>
+      o.request("GET /repos/{owner}/{repo}/rules/branches/{branch}", { owner, repo: name, branch }),
     );
-    return Boolean(bp.data.required_status_checks || bp.data.required_pull_request_reviews);
+    const types = new Set((rules.data as Array<{ type: string }>).map((r) => r.type));
+    if (types.has("pull_request") || types.has("required_status_checks")) return true;
   } catch {
-    return false; // 404 = unprotected
+    // fall through to the branch `protected` flag
+  }
+  try {
+    const b = await gh.withRest("read", (o) => o.repos.getBranch({ owner, repo: name, branch }));
+    return Boolean(b.data.protected);
+  } catch {
+    return false;
   }
 }
 
