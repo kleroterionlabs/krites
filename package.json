@@ -1,0 +1,69 @@
+{
+  "name": "@kleroterion/krites",
+  "version": "0.0.0",
+  "description": "Autonomous reviewer/merger: reviews the PRs Praktor opens against Boule's acceptance criteria, posts a GitHub review, and enables gated auto-merge — closing the Boule → Praktor → Krites loop.",
+  "keywords": [
+    "claude",
+    "agent-sdk",
+    "github",
+    "autonomous-agent",
+    "code-review",
+    "auto-merge",
+    "boule",
+    "praktor",
+    "cli"
+  ],
+  "homepage": "https://github.com/kleroterionlabs/krites#readme",
+  "bugs": {
+    "url": "https://github.com/kleroterionlabs/krites/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kleroterionlabs/krites.git"
+  },
+  "license": "MIT",
+  "author": "Bill Schumacher <34168009+BillSchumacher@users.noreply.github.com>",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "bin": {
+    "krites": "dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli/bin.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "biome ci .",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@kleroterion/koine": "0.0.3",
+    "commander": "^12.1.0",
+    "ulid": "^2.3.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/node": "^22.5.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "msw": "^2.4.0",
+    "pino-pretty": "^11.2.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
